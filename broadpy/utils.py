@@ -27,7 +27,7 @@ def load_nirspec_resolution_profile(file=None, grating=None, wave=None):
     
     assert (file is not None) or (grating is not None), 'Please provide a file or a grating'
     assert (file is None) or (grating is None), 'Please provide only a file or a grating'
-    
+    # print(f' Loading NIRSpec resolution profile for grating {grating} with file: {file}')
     if file is None:
         # file = path / f'../data/jwst_nirspec_{grating.lower()}_disp.fits'
         file = path / f'data/jwst_nirspec_{grating.lower()}_disp.fits'

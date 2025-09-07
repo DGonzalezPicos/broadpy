@@ -14,13 +14,16 @@ class InstrumentalBroadening:
                          'gaussian_variable',
                          'auto']
     
-    def __init__(self, x, y):
+    def __init__(self, x=None, y=None):
         
-        self.x = x # units of wavelength
-        self.y = y # units of flux (does not matter)
-        assert len(self.x) == len(self.y), 'x and y should have the same length'
+        if x is not None:
+            self.x = x # units of wavelength
+            self.spacing = np.mean(2*np.diff(self.x) / (self.x[1:] + self.x[:-1]))
 
-        self.spacing = np.mean(2*np.diff(self.x) / (self.x[1:] + self.x[:-1]))
+        if y is not None:
+            self.y = y # units of flux (does not matter)
+            assert len(self.x) == len(self.y), 'x and y should have the same length'
+
     
     def __call__(self, res=None, fwhm=None, gamma=None, truncate=4.0, kernel='auto'):
         '''Instrumental broadening
