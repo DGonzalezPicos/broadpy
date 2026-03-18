@@ -1,0 +1,29 @@
+site_name: broadpy
+site_description: Spectral broadening tools for astronomy
+site_url: https://DGonzalezPicos.github.io/broadpy/
+repo_url: https://github.com/DGonzalezPicos/broadpy
+repo_name: DGonzalezPicos/broadpy
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: cyan
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocs-jupyter:
+      include_source: true
+      execute: false
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quickstart: instrumental_broadening_examples.ipynb
+
+docs_dir: docs

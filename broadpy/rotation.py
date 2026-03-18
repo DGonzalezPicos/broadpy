@@ -6,17 +6,21 @@ class RotationalBroadening:
     c = 2.998e5  # Speed of light in km/s
     epsilon = 0.6  # Limb darkening coefficient, default: 0.6
     
-    def __init__(self, x, y):
-        self.x = x  # Wavelength array
-        self.y = y  # Flux array
-        assert len(self.x) == len(self.y), 'x and y should have the same length'
-        assert np.any(np.isnan(self.x)) == False, 'x should not contain NaN values'
+    def __init__(self, wavelength, flux):
+        self.wavelength = wavelength  # Wavelength array
+        self.flux = flux  # Flux array
+        assert len(self.wavelength) == len(self.flux), (
+            '`wavelength` and `flux` should have the same length.'
+        )
+        assert not np.any(np.isnan(self.wavelength)), '`wavelength` should not contain NaN.'
 
-        self.spacing = np.mean(2 * np.diff(self.x) / (self.x[1:] + self.x[:-1]))
+        self.spacing = np.mean(
+            2 * np.diff(self.wavelength) / (self.wavelength[1:] + self.wavelength[:-1])
+        )
         
         # reference wavelength
-        self.ref_wave = np.mean(self.x)
-        self.dw = np.mean(np.diff(self.x))
+        self.ref_wave = np.mean(self.wavelength)
+        self.dw = np.mean(np.diff(self.wavelength))
         
     
     def __call__(self, vsini, epsilon=0.6):
@@ -36,7 +40,7 @@ class RotationalBroadening:
         '''
         self.eps = epsilon
         _kernel = self.rotational_kernel(vsini, self.ref_wave, self.dw)
-        y_broadened = convolve1d(self.y, _kernel, mode='nearest') * self.dw
+        y_broadened = convolve1d(self.flux, _kernel, mode='nearest') * self.dw
         return y_broadened
     
     def rotational_kernel(self, vsini, refwvl, dwl):

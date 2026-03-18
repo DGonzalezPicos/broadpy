@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.signal import convolve 
 from scipy.ndimage import convolve1d # suitable for 'same' output shape as input
 from scipy.special import voigt_profile
 
@@ -14,27 +13,30 @@ class InstrumentalBroadening:
                          'gaussian_variable',
                          'auto']
     
-    def __init__(self, x=None, y=None):
-        
-        if x is not None:
-            self.x = x # units of wavelength
-            self.spacing = np.mean(2*np.diff(self.x) / (self.x[1:] + self.x[:-1]))
+    def __init__(self, wavelength=None, flux=None):
+        if wavelength is not None:
+            self.wavelength = wavelength  # units of wavelength
+            self.spacing = np.mean(
+                2 * np.diff(self.wavelength) / (self.wavelength[1:] + self.wavelength[:-1])
+            )
 
-        if y is not None:
-            self.y = y # units of flux (does not matter)
-            assert len(self.x) == len(self.y), 'x and y should have the same length'
+        if flux is not None:
+            if wavelength is None:
+                raise ValueError("`wavelength` must be provided when setting `flux`.")
+            self.flux = flux  # units of flux (does not matter)
+            assert len(self.wavelength) == len(self.flux), "`wavelength` and `flux` should match."
 
     
-    def __call__(self, res=None, fwhm=None, gamma=None, truncate=4.0, kernel='auto'):
+    def __call__(self, resolution=None, fwhm=None, gamma=None, truncate=4.0, kernel='auto'):
         '''Instrumental broadening
         
-        provide either instrumental resolution lambda/delta_lambda or FWHM in km/s'''
-        kernel = self.__read_kernel(res=res, fwhm=fwhm, gamma=gamma) if kernel == 'auto' else kernel
+        provide either instrumental resolutionolution lambda/delta_lambda or FWHM in km/s'''
+        kernel = self.__read_kernel(resolution=resolution, fwhm=fwhm, gamma=gamma) if kernel == 'auto' else kernel
         assert kernel in self.available_kernels, f'Please provide a valid kernel: {self.available_kernels}'
         # print(f' Applying {kernel} kernel')
         
         if kernel in ['gaussian', 'voigt']:
-            fwhm = fwhm if fwhm is not None else (self.c / res)
+            fwhm = fwhm if fwhm is not None else (self.c / resolution)
 
         if kernel == 'gaussian':
             _kernel = self.gaussian_kernel(fwhm, truncate)
@@ -48,16 +50,44 @@ class InstrumentalBroadening:
             _kernel = self.voigt_kernel(fwhm, gamma, truncate)
             
         if kernel == 'gaussian_variable':
-            assert isinstance(fwhm, (list, np.ndarray)), 'Please provide a list of FWHM values'
-            assert len(fwhm) == len(self.x), 'FWHM list should have the same length as the wavelength array'
-            _kernels, lw = self.gaussian_variable_kernel(fwhm, truncate)
-            y_pad = np.pad(self.y, (lw, lw), mode='reflect')
-            # y_matrix = np.array([y_pad[i:i + len(self.y)] for i in range(2 * lw + 1)]).T
-            y_matrix = np.lib.stride_tricks.sliding_window_view(y_pad, window_shape=(2 * lw + 1))
-            y_lsf = np.einsum('ij, ij->i', _kernels, y_matrix)
+            fwhm_array = np.asarray(fwhm, dtype=float)
+            assert fwhm_array.ndim == 1, 'Please provide a 1D list/array of FWHM values'
+            assert len(fwhm_array) == len(self.wavelength), (
+                'FWHM list should have the same length as the wavelength array'
+            )
+            _kernels, lw = self.gaussian_variable_kernel(fwhm_array, truncate)
+
+            # Robust edge + bad-pixel treatment:
+            # - `edge` padding avoids mirrored spectral features at boundaries.
+            # - weighted normalization ignores NaN pixels without biasing flux scale.
+            flux_values = np.asarray(self.flux, dtype=float)
+            valid_mask = np.isfinite(flux_values).astype(float)
+            flux_filled = np.nan_to_num(flux_values, nan=0.0)
+
+            flux_pad = np.pad(flux_filled, (lw, lw), mode='edge')
+            valid_pad = np.pad(valid_mask, (lw, lw), mode='edge')
+
+            flux_windows = np.lib.stride_tricks.sliding_window_view(
+                flux_pad,
+                window_shape=(2 * lw + 1),
+            )
+            valid_windows = np.lib.stride_tricks.sliding_window_view(
+                valid_pad,
+                window_shape=(2 * lw + 1),
+            )
+
+            weighted_flux = np.einsum('ij,ij->i', _kernels, flux_windows)
+            weighted_norm = np.einsum('ij,ij->i', _kernels, valid_windows)
+
+            y_lsf = np.divide(
+                weighted_flux,
+                weighted_norm,
+                out=np.full_like(weighted_flux, np.nan),
+                where=weighted_norm > 1e-12,
+            )
             return y_lsf
             
-        y_lsf = convolve1d(self.y, _kernel, mode='nearest')
+        y_lsf = convolve1d(self.flux, _kernel, mode='nearest')
         return y_lsf
     
     @classmethod
@@ -114,12 +144,20 @@ class InstrumentalBroadening:
             Convolution kernel
         '''
         sd = (fwhm/self.c) / self.sqrt8ln2 / self.spacing
+        if np.any(~np.isfinite(sd)):
+            raise ValueError('FWHM values must be finite.')
+        if np.any(sd <= 0):
+            raise ValueError('FWHM values must be strictly positive.')
+
+        # Lower bound prevents division-by-zero and over-sharp kernels.
+        sd = np.maximum(sd, 1e-6)
         lw = int(truncate * sd.max() + 0.5)
         x = np.arange(-lw, lw + 1)
         
         # Use broadcasting to create a 2D array of Gaussian kernels
         kernels = np.exp(-0.5 * (x[None, :] / sd[:, None]) ** 2)
-        kernels /= kernels.sum(axis=1)[:, None]
+        kernel_norm = kernels.sum(axis=1)[:, None]
+        kernels /= np.where(kernel_norm > 0, kernel_norm, 1.0)
         return kernels, lw
         
     
@@ -178,16 +216,16 @@ class InstrumentalBroadening:
         
         return kernel
     
-    def __read_kernel(self, res=None, fwhm=None, gamma=None):
+    def __read_kernel(self, resolution=None, fwhm=None, gamma=None):
         '''Read kernel from the input parameters'''
-        if res is not None:
+        if resolution is not None:
             return 'gaussian'
+        if fwhm is not None and isinstance(fwhm, (list, np.ndarray)):
+            return 'gaussian_variable'
         if fwhm is not None and gamma is None:
             return 'gaussian'
         if fwhm is None and gamma is not None:
             return 'lorentzian'
         if fwhm is not None and gamma is not None:
             return 'voigt'
-        if fwhm is not None and isinstance(fwhm, (list, np.ndarray)):
-            return 'gaussian_variable'
         raise ValueError(f'Please provide a valid kernel: {self.available_kernels}')
