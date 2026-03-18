@@ -3,6 +3,12 @@ from scipy.signal import convolve
 from scipy.ndimage import convolve1d # suitable for 'same' output shape as input
 from scipy.special import voigt_profile
 
+def instrumental_broadening(x, y, resolution=None, fwhm=None, gamma=None):
+    '''Instrumental broadening
+    
+    provide either instrumental resolution lambda/delta_lambda or FWHM in km/s'''
+    return InstrumentalBroadening(x, y)(resolution=resolution, fwhm=fwhm, gamma=gamma)
+
 class InstrumentalBroadening:
     
     c = 2.998e5 # km/s
@@ -25,16 +31,16 @@ class InstrumentalBroadening:
             assert len(self.x) == len(self.y), 'x and y should have the same length'
 
     
-    def __call__(self, res=None, fwhm=None, gamma=None, truncate=4.0, kernel='auto'):
+    def __call__(self, resolution=None, fwhm=None, gamma=None, truncate=4.0, kernel='auto'):
         '''Instrumental broadening
         
         provide either instrumental resolution lambda/delta_lambda or FWHM in km/s'''
-        kernel = self.__read_kernel(res=res, fwhm=fwhm, gamma=gamma) if kernel == 'auto' else kernel
+        kernel = self.__read_kernel(resolution=resolution, fwhm=fwhm, gamma=gamma) if kernel == 'auto' else kernel
         assert kernel in self.available_kernels, f'Please provide a valid kernel: {self.available_kernels}'
         # print(f' Applying {kernel} kernel')
         
         if kernel in ['gaussian', 'voigt']:
-            fwhm = fwhm if fwhm is not None else (self.c / res)
+            fwhm = fwhm if fwhm is not None else (self.c / resolution)
 
         if kernel == 'gaussian':
             _kernel = self.gaussian_kernel(fwhm, truncate)
@@ -178,9 +184,9 @@ class InstrumentalBroadening:
         
         return kernel
     
-    def __read_kernel(self, res=None, fwhm=None, gamma=None):
+    def __read_kernel(self, resolution=None, fwhm=None, gamma=None):
         '''Read kernel from the input parameters'''
-        if res is not None:
+        if resolution is not None:
             return 'gaussian'
         if fwhm is not None and gamma is None:
             return 'gaussian'

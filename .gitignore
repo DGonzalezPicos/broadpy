@@ -6,3 +6,6 @@ __pycache__/
 examples/variable_gaussian_broadening.py
 examples/data/lsf_width.npy
 examples/data/lsf_width.txt
+*.pdf
+*.png
+test_*
